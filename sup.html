@@ -1,78 +1,173 @@
 <!DOCTYPE html>
 <html>
-<head>
-  <meta charset="utf-8" />
-  <title>Supervisor Map</title>
-  <meta name="viewport" content="initial-scale=1, maximum-scale=1, user-scalable=no" />
-  <link rel="stylesheet" href="https://js.arcgis.com/4.29/esri/themes/light/main.css" />
-  <script src="https://js.arcgis.com/4.29/"></script>
-  <style>
-    html, body, #viewDiv { height: 100%; margin: 0; padding: 0; }
-    #sketchDiv {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      z-index: 99;
-      background: white;
-      padding: 10px;
-      border-radius: 6px;
-    }
-  </style>
-</head>
-<body>
-  <div id="viewDiv"></div>
-  <div id="sketchDiv"></div>
-
-  <script>
-    require([
-      "esri/Map",
-      "esri/views/MapView",
-      "esri/widgets/Sketch",
-      "esri/layers/GraphicsLayer",
-      "esri/Graphic"
-    ], function(Map, MapView, Sketch, GraphicsLayer, Graphic) {
-
-      const graphicsLayer = new GraphicsLayer();
-
-      const map = new Map({
-        basemap: "topo-vector",
-        layers: [graphicsLayer]
-      });
-
-      // Get engineer coordinates
-      let engineerCoords = JSON.parse(localStorage.getItem("engineerCoords")) || { lat: 21.4, lon: 39.8 };
-
-      const view = new MapView({
-        container: "viewDiv",
-        map: map,
-        center: [engineerCoords.lon, engineerCoords.lat],
-        zoom: 12
-      });
-
-      // Cookie helper
-      function getCookie(name) {
-        const value = `; ${document.cookie}`;
-        const parts = value.split(`; ${name}=`);
-        if (parts.length === 2) return decodeURIComponent(parts.pop().split(";").shift());
-        return null;
+  <head>
+    <meta charset="utf-8" />
+    <title>ArcGIS Map in Joget - Supervisor</title>
+    <meta name="viewport" content="initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <link rel="stylesheet" href="https://js.arcgis.com/4.29/esri/themes/light/main.css" />
+    <script src="https://js.arcgis.com/4.29/"></script>
+    <style>
+      html, body, #viewDiv { height: 100%; margin: 0; padding: 0; }
+      #sketchDiv {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        z-index: 99;
+        background: white;
+        padding: 10px;
+        border-radius: 6px;
       }
+      #controlsDiv {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 99;
+        background: white;
+        padding: 10px;
+        border-radius: 6px;
+        font-family: Arial, sans-serif;
+      }
+      #statusDiv {
+        position: absolute;
+        bottom: 10px;
+        left: 10px;
+        z-index: 99;
+        background: white;
+        padding: 10px;
+        border-radius: 6px;
+        font-family: Arial, sans-serif;
+        font-size: 12px;
+        max-width: 300px;
+      }
+      .control-button {
+        margin: 5px;
+        padding: 8px 12px;
+        background: #0079c1;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .control-button:hover {
+        background: #005a87;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="viewDiv"></div>
+    <div id="sketchDiv"></div>
+    
+    <div id="controlsDiv">
+      <div><strong>Supervisor Controls</strong></div>
+      <button class="control-button" onclick="saveSketchesToCookie()">Save Sketches</button>
+      <button class="control-button" onclick="loadSketchesFromCookie()">Load Sketches</button>
+      <button class="control-button" onclick="clearSketches()">Clear All</button>
+      <button class="control-button" onclick="exportSketchData()">Export Data</button>
+    </div>
+    
+    <div id="statusDiv">
+      <div><strong>Inspector Location:</strong></div>
+      <div id="inspectorCoords">Loading...</div>
+      <div id="sketchStatus">Ready for sketching</div>
+    </div>
+    
+    <script>
+  require([
+    "esri/Map",
+    "esri/views/MapView",
+    "esri/widgets/Sketch",
+    "esri/layers/GraphicsLayer",
+    "esri/Graphic",
+    "esri/geometry/Point"
+  ], function(Map, MapView, Sketch, GraphicsLayer, Graphic, Point) {
 
-      // Add engineer's point
-      const pointGraphic = new Graphic({
-        geometry: {
-          type: "point",
-          longitude: engineerCoords.lon,
-          latitude: engineerCoords.lat
-        },
+    const graphicsLayer = new GraphicsLayer();
+    const inspectorLayer = new GraphicsLayer(); // Separate layer for inspector location
+
+    const map = new Map({
+      basemap: "topo-vector",
+      layers: [inspectorLayer, graphicsLayer]
+    });
+
+    let view, sketch;
+    let inspectorCoordinates = null;
+
+    // Function to get coordinates from cookie
+    function getCoordinatesFromCookie() {
+      const cookies = document.cookie.split(';');
+      for (let cookie of cookies) {
+        const [name, value] = cookie.trim().split('=');
+        if (name === 'inspectionCoordinates') {
+          try {
+            const coordinates = JSON.parse(decodeURIComponent(value));
+            return coordinates;
+          } catch (e) {
+            console.log("Error parsing coordinates from cookie:", e);
+          }
+        }
+      }
+      return null;
+    }
+
+    // Function to display inspector location on map
+    function displayInspectorLocation(lat, lon) {
+      const point = new Point({
+        longitude: lon,
+        latitude: lat
+      });
+
+      const inspectorGraphic = new Graphic({
+        geometry: point,
         symbol: {
           type: "simple-marker",
-          color: "red",
-          size: 8
+          color: [255, 0, 0], // Red color
+          size: 12,
+          outline: {
+            color: [255, 255, 255],
+            width: 2
+          }
+        },
+        attributes: {
+          title: "Inspector Location"
+        },
+        popupTemplate: {
+          title: "Inspector Location",
+          content: `Coordinates: ${lat.toFixed(6)}, ${lon.toFixed(6)}`
         }
       });
-      graphicsLayer.add(pointGraphic);
 
-      const sketch = new Sketch({
+      inspectorLayer.add(inspectorGraphic);
+      
+      // Update status display
+      document.getElementById('inspectorCoords').innerHTML = 
+        `Lat: ${lat.toFixed(6)}, Lon: ${lon.toFixed(6)}`;
+    }
+
+    // Initialize map with inspector coordinates
+    function initializeMap() {
+      const coordinates = getCoordinatesFromCookie();
+      
+      let centerLon = 39.8, centerLat = 21.4, zoomLevel = 10; // Default values
+      
+      if (coordinates) {
+        centerLon = coordinates.longitude;
+        centerLat = coordinates.latitude;
+        zoomLevel = 15; // Zoom closer to inspector location
+        inspectorCoordinates = coordinates;
+        
+        console.log("Found inspector coordinates:", coordinates);
+      } else {
+        document.getElementById('inspectorCoords').innerHTML = "No inspector location found";
+      }
+
+      view = new MapView({
+        container: "viewDiv",
+        map: map,
+        center: [centerLon, centerLat],
+        zoom: zoomLevel
+      });
+
+      sketch = new Sketch({
         layer: graphicsLayer,
         view: view,
         creationMode: "update",
@@ -80,34 +175,136 @@
         container: "sketchDiv"
       });
 
-      // Load saved sketch from cookies
-      const savedSketch = getCookie("supervisorSketch");
-      if (savedSketch) {
-        try {
-          const geometryJSON = JSON.parse(savedSketch);
-          const savedGraphic = new Graphic({
-            geometry: geometryJSON,
-            symbol: {
-              type: "simple-fill",
-              color: [0, 0, 255, 0.3],
-              outline: { color: [0, 0, 255], width: 2 }
-            }
-          });
-          graphicsLayer.add(savedGraphic);
-        } catch (e) {
-          console.warn("Could not load saved sketch:", e);
-        }
+      // Display inspector location if available
+      if (coordinates) {
+        view.when(() => {
+          displayInspectorLocation(coordinates.latitude, coordinates.longitude);
+        });
       }
 
-      // Save sketch to cookies when created
+      // Listen for sketch events
       sketch.on("create", function(event) {
         if (event.state === "complete") {
-          const coords = event.graphic.geometry.toJSON();
-          document.cookie = "supervisorSketch=" + encodeURIComponent(JSON.stringify(coords)) + "; path=/; max-age=31536000";
+          updateSketchStatus("New sketch created");
         }
       });
 
-    });
-  </script>
-</body>
+      sketch.on("update", function(event) {
+        if (event.state === "complete") {
+          updateSketchStatus("Sketch updated");
+        }
+      });
+    }
+
+    // Function to update status display
+    function updateSketchStatus(message) {
+      document.getElementById('sketchStatus').innerHTML = message;
+    }
+
+    // Function to save sketches to cookie
+    window.saveSketchesToCookie = function() {
+      const graphics = graphicsLayer.graphics.items;
+      const sketchData = [];
+
+      graphics.forEach((graphic, index) => {
+        const geometryJSON = graphic.geometry.toJSON();
+        const symbolJSON = graphic.symbol ? graphic.symbol.toJSON() : null;
+        
+        sketchData.push({
+          id: index,
+          geometry: geometryJSON,
+          symbol: symbolJSON,
+          attributes: graphic.attributes || {}
+        });
+      });
+
+      const sketchInfo = {
+        sketches: sketchData,
+        timestamp: new Date().toISOString(),
+        inspectorCoordinates: inspectorCoordinates
+      };
+
+      // Save to cookie (expires in 7 days)
+      const expirationDate = new Date();
+      expirationDate.setTime(expirationDate.getTime() + (7 * 24 * 60 * 60 * 1000));
+      document.cookie = `supervisorSketches=${JSON.stringify(sketchInfo)}; expires=${expirationDate.toUTCString()}; path=/`;
+      
+      updateSketchStatus(`${sketchData.length} sketches saved to cookie`);
+      console.log("Sketches saved:", sketchInfo);
+    };
+
+    // Function to load sketches from cookie
+    window.loadSketchesFromCookie = function() {
+      const cookies = document.cookie.split(';');
+      for (let cookie of cookies) {
+        const [name, value] = cookie.trim().split('=');
+        if (name === 'supervisorSketches') {
+          try {
+            const sketchInfo = JSON.parse(decodeURIComponent(value));
+            
+            // Clear existing sketches
+            graphicsLayer.removeAll();
+            
+            // Recreate graphics from saved data
+            sketchInfo.sketches.forEach(sketchData => {
+              const graphic = new Graphic({
+                geometry: sketchData.geometry,
+                symbol: sketchData.symbol,
+                attributes: sketchData.attributes
+              });
+              graphicsLayer.add(graphic);
+            });
+            
+            updateSketchStatus(`${sketchInfo.sketches.length} sketches loaded from cookie`);
+            console.log("Sketches loaded:", sketchInfo);
+            return;
+            
+          } catch (e) {
+            console.log("Error loading sketches:", e);
+            updateSketchStatus("Error loading sketches");
+          }
+        }
+      }
+      updateSketchStatus("No saved sketches found");
+    };
+
+    // Function to clear all sketches
+    window.clearSketches = function() {
+      graphicsLayer.removeAll();
+      updateSketchStatus("All sketches cleared");
+    };
+
+    // Function to export sketch data (for integration with Joget)
+    window.exportSketchData = function() {
+      const graphics = graphicsLayer.graphics.items;
+      const exportData = {
+        inspectorCoordinates: inspectorCoordinates,
+        sketches: [],
+        exportTimestamp: new Date().toISOString()
+      };
+
+      graphics.forEach((graphic, index) => {
+        exportData.sketches.push({
+          id: index,
+          geometry: graphic.geometry.toJSON(),
+          symbol: graphic.symbol ? graphic.symbol.toJSON() : null
+        });
+      });
+
+      // Send data to parent window (Joget form)
+      window.parent.postMessage({
+        type: "sketchDataExport",
+        data: exportData
+      }, "*");
+
+      console.log("Sketch data exported:", exportData);
+      updateSketchStatus("Sketch data exported to form");
+    };
+
+    // Initialize the map when page loads
+    initializeMap();
+  });
+</script>
+
+  </body>
 </html>
