@@ -95,17 +95,23 @@
     // Function to get coordinates from cookie
     function getCoordinatesFromCookie() {
       const cookies = document.cookie.split(';');
+      console.log("Looking for coordinates in cookies...");
+      
       for (let cookie of cookies) {
         const [name, value] = cookie.trim().split('=');
         if (name === 'inspectionCoordinates') {
           try {
             const coordinates = JSON.parse(decodeURIComponent(value));
+            console.log("Found coordinates in cookie:", coordinates);
             return coordinates;
           } catch (e) {
             console.log("Error parsing coordinates from cookie:", e);
           }
         }
       }
+      
+      console.log("No inspection coordinates found in cookies");
+      console.log("Available cookies:", document.cookie);
       return null;
     }
 
@@ -147,17 +153,23 @@
     function initializeMap() {
       const coordinates = getCoordinatesFromCookie();
       
-      let centerLon = 39.8, centerLat = 21.4, zoomLevel = 10; // Default values
+      let centerLon = 31.2357, centerLat = 30.0444, zoomLevel = 8; // Default Cairo coordinates
       
       if (coordinates) {
         centerLon = coordinates.longitude;
         centerLat = coordinates.latitude;
-        zoomLevel = 15; // Zoom closer to inspector location
+        zoomLevel = 16; // Zoom very close to inspector location
         inspectorCoordinates = coordinates;
         
         console.log("Found inspector coordinates:", coordinates);
+        document.getElementById('inspectorCoords').innerHTML = 
+          `Lat: ${centerLat.toFixed(6)}, Lon: ${centerLon.toFixed(6)}`;
       } else {
         document.getElementById('inspectorCoords').innerHTML = "No inspector location found";
+        console.log("No coordinates found in cookie");
+        
+        // Try to check all cookies for debugging
+        console.log("All cookies:", document.cookie);
       }
 
       view = new MapView({
@@ -175,12 +187,18 @@
         container: "sketchDiv"
       });
 
-      // Display inspector location if available
-      if (coordinates) {
-        view.when(() => {
+      // Wait for the view to load, then display inspector location
+      view.when(() => {
+        console.log("Map view is ready");
+        if (coordinates) {
           displayInspectorLocation(coordinates.latitude, coordinates.longitude);
-        });
-      }
+          // Double-check the map is centered correctly
+          view.goTo({
+            center: [coordinates.longitude, coordinates.latitude],
+            zoom: 16
+          });
+        }
+      });
 
       // Listen for sketch events
       sketch.on("create", function(event) {
