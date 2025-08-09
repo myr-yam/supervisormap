@@ -1,88 +1,113 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Supervisor Map</title>
-    <meta name="viewport" content="initial-scale=1, maximum-scale=1, user-scalable=no" />
-    <link rel="stylesheet" href="https://js.arcgis.com/4.29/esri/themes/light/main.css" />
-    <script src="https://js.arcgis.com/4.29/"></script>
-    <style>
-      html, body, #viewDiv { height: 100%; margin: 0; padding: 0; }
-      #sketchDiv {
-        position: absolute;
-        top: 10px;
-        left: 10px;
-        z-index: 99;
-        background: white;
-        padding: 10px;
-        border-radius: 6px;
-      }
-    </style>
-  </head>
-  <body>
-    <div id="viewDiv"></div>
-    <div id="sketchDiv"></div>
+<head>
+  <meta charset="utf-8" />
+  <title>Supervisor Map</title>
+  <meta name="viewport" content="initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <link rel="stylesheet" href="https://js.arcgis.com/4.29/esri/themes/light/main.css" />
+  <script src="https://js.arcgis.com/4.29/"></script>
+  <style>
+    html, body, #viewDiv { height: 100%; margin: 0; padding: 0; }
+    #sketchDiv {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 99;
+      background: white;
+      padding: 10px;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div id="viewDiv"></div>
+  <div id="sketchDiv"></div>
 
-    <script>
-      require([
-        "esri/Map",
-        "esri/views/MapView",
-        "esri/widgets/Sketch",
-        "esri/layers/GraphicsLayer"
-      ], function(Map, MapView, Sketch, GraphicsLayer) {
+  <script>
+    require([
+      "esri/Map",
+      "esri/views/MapView",
+      "esri/widgets/Sketch",
+      "esri/layers/GraphicsLayer",
+      "esri/Graphic"
+    ], function(Map, MapView, Sketch, GraphicsLayer, Graphic) {
 
-        function getCookie(name) {
-          const value = `; ${document.cookie}`;
-          const parts = value.split(`; ${name}=`);
-          if (parts.length === 2) return parts.pop().split(';').shift();
-        }
+      const graphicsLayer = new GraphicsLayer();
 
-        function setCookie(name, value, days) {
-          const d = new Date();
-          d.setTime(d.getTime() + (days*24*60*60*1000));
-          document.cookie = `${name}=${value};expires=${d.toUTCString()};path=/`;
-        }
-
-        const graphicsLayer = new GraphicsLayer();
-        const map = new Map({
-          basemap: "topo-vector",
-          layers: [graphicsLayer]
-        });
-
-        // Get engineer's location
-        let engineerCoords = getCookie("engineerCoords");
-        let centerCoords = [39.8, 21.4]; // default [lon, lat]
-        if (engineerCoords) {
-          let [lat, lon] = engineerCoords.split(",").map(Number);
-          centerCoords = [lon, lat]; // ArcGIS expects [lon, lat]
-        }
-
-        const view = new MapView({
-          container: "viewDiv",
-          map: map,
-          center: centerCoords,
-          zoom: 15
-        });
-
-        const sketch = new Sketch({
-          layer: graphicsLayer,
-          view: view,
-          creationMode: "update",
-          availableCreateTools: ["point", "polyline", "polygon", "rectangle", "circle"],
-          container: "sketchDiv" 
-        });
-
-        // Save each completed sketch to cookie
-        sketch.on("create", function(event) {
-          if (event.state === "complete") {
-            const geom = event.graphic.geometry.toJSON();
-            let existing = getCookie("supervisorSketches");
-            let arr = existing ? JSON.parse(existing) : [];
-            arr.push(geom);
-            setCookie("supervisorSketches", JSON.stringify(arr), 1);
-          }
-        });
+      const map = new Map({
+        basemap: "topo-vector",
+        layers: [graphicsLayer]
       });
-    </script>
-  </body>
+
+      // Get engineer coordinates
+      let engineerCoords = JSON.parse(localStorage.getItem("engineerCoords")) || { lat: 21.4, lon: 39.8 };
+
+      const view = new MapView({
+        container: "viewDiv",
+        map: map,
+        center: [engineerCoords.lon, engineerCoords.lat],
+        zoom: 12
+      });
+
+      // Cookie helper
+      function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return decodeURIComponent(parts.pop().split(";").shift());
+        return null;
+      }
+
+      // Add engineer's point
+      const pointGraphic = new Graphic({
+        geometry: {
+          type: "point",
+          longitude: engineerCoords.lon,
+          latitude: engineerCoords.lat
+        },
+        symbol: {
+          type: "simple-marker",
+          color: "red",
+          size: 8
+        }
+      });
+      graphicsLayer.add(pointGraphic);
+
+      const sketch = new Sketch({
+        layer: graphicsLayer,
+        view: view,
+        creationMode: "update",
+        availableCreateTools: ["point", "polyline", "polygon", "rectangle", "circle"],
+        container: "sketchDiv"
+      });
+
+      // Load saved sketch from cookies
+      const savedSketch = getCookie("supervisorSketch");
+      if (savedSketch) {
+        try {
+          const geometryJSON = JSON.parse(savedSketch);
+          const savedGraphic = new Graphic({
+            geometry: geometryJSON,
+            symbol: {
+              type: "simple-fill",
+              color: [0, 0, 255, 0.3],
+              outline: { color: [0, 0, 255], width: 2 }
+            }
+          });
+          graphicsLayer.add(savedGraphic);
+        } catch (e) {
+          console.warn("Could not load saved sketch:", e);
+        }
+      }
+
+      // Save sketch to cookies when created
+      sketch.on("create", function(event) {
+        if (event.state === "complete") {
+          const coords = event.graphic.geometry.toJSON();
+          document.cookie = "supervisorSketch=" + encodeURIComponent(JSON.stringify(coords)) + "; path=/; max-age=31536000";
+        }
+      });
+
+    });
+  </script>
+</body>
 </html>
