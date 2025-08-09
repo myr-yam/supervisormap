@@ -329,26 +329,65 @@ require([
   // Function to save supervisor review
   window.saveReview = function() {
     const graphics = graphicsLayer.graphics.items;
+    
+    console.log("Saving review - found graphics:", graphics.length);
+    
+    if (graphics.length === 0) {
+      showControlStatus("⚠️ No sketches to save. Draw something first!", "error");
+      return;
+    }
+
     const reviewData = {
       inspectionCoordinates: inspectionCoordinates,
       sketches: [],
       reviewTimestamp: new Date().toISOString(),
-      sketchCount: graphics.length
+      sketchCount: graphics.length,
+      reviewId: `review_${Date.now()}`
     };
 
     graphics.forEach((graphic, index) => {
-      reviewData.sketches.push({
-        id: index,
-        geometry: graphic.geometry.toJSON(),
-        symbol: graphic.symbol ? graphic.symbol.toJSON() : null,
-        attributes: graphic.attributes || {}
-      });
+      try {
+        const sketchItem = {
+          id: index,
+          geometry: graphic.geometry.toJSON(),
+          symbol: graphic.symbol ? graphic.symbol.toJSON() : null,
+          attributes: graphic.attributes || {},
+          type: graphic.geometry.type
+        };
+        reviewData.sketches.push(sketchItem);
+        console.log(`Sketch ${index} processed:`, sketchItem.type);
+      } catch (error) {
+        console.error(`Error processing sketch ${index}:`, error);
+      }
     });
 
     try {
-      // Save to multiple storage locations
-      localStorage.setItem('supervisorReview', JSON.stringify(reviewData));
-      sessionStorage.setItem('supervisorReview', JSON.stringify(reviewData));
+      const reviewJson = JSON.stringify(reviewData);
+      
+      // Save to multiple storage locations with error handling
+      try {
+        localStorage.setItem('supervisorReview', reviewJson);
+        console.log("Saved to localStorage");
+      } catch (e) {
+        console.error("localStorage save failed:", e);
+      }
+      
+      try {
+        sessionStorage.setItem('supervisorReview', reviewJson);
+        console.log("Saved to sessionStorage");
+      } catch (e) {
+        console.error("sessionStorage save failed:", e);
+      }
+      
+      // Save to cookie as backup
+      try {
+        const expirationDate = new Date();
+        expirationDate.setTime(expirationDate.getTime() + (24 * 60 * 60 * 1000)); // 1 day
+        document.cookie = `supervisorReview=${encodeURIComponent(reviewJson)}; expires=${expirationDate.toUTCString()}; path=/; SameSite=Lax`;
+        console.log("Saved to cookie");
+      } catch (e) {
+        console.error("Cookie save failed:", e);
+      }
       
       // Send to parent window (Joget form)
       if (window.parent) {
@@ -356,51 +395,116 @@ require([
           type: "supervisorReview",
           data: reviewData
         }, "*");
+        console.log("Sent to parent window");
       }
 
-      console.log("Review saved:", reviewData);
-      showControlStatus(`✅ Review saved! (${graphics.length} sketches)`, "success");
+      console.log("Review saved successfully:", reviewData);
+      showControlStatus(`✅ Review saved! (${graphics.length} sketches) ID: ${reviewData.reviewId.slice(-8)}`, "success");
+      
+      // Verify save by trying to read it back
+      setTimeout(() => {
+        const verification = localStorage.getItem('supervisorReview');
+        if (verification) {
+          console.log("Save verification successful");
+        } else {
+          console.error("Save verification failed");
+        }
+      }, 100);
       
     } catch (error) {
       console.error("Error saving review:", error);
-      showControlStatus("❌ Error saving review", "error");
+      showControlStatus("❌ Error saving review: " + error.message, "error");
     }
   };
 
   // Function to load saved review
   window.loadSavedReview = function() {
     try {
-      let savedData = localStorage.getItem('supervisorReview');
+      let savedData = null;
       
+      // Try localStorage first
+      try {
+        savedData = localStorage.getItem('supervisorReview');
+        if (savedData) console.log("Found data in localStorage");
+      } catch (e) {
+        console.error("localStorage read failed:", e);
+      }
+      
+      // Try sessionStorage if localStorage failed
       if (!savedData) {
-        savedData = sessionStorage.getItem('supervisorReview');
+        try {
+          savedData = sessionStorage.getItem('supervisorReview');
+          if (savedData) console.log("Found data in sessionStorage");
+        } catch (e) {
+          console.error("sessionStorage read failed:", e);
+        }
+      }
+      
+      // Try cookies as last resort
+      if (!savedData) {
+        try {
+          const cookies = document.cookie.split(';');
+          for (let cookie of cookies) {
+            const [name, value] = cookie.trim().split('=');
+            if (name === 'supervisorReview') {
+              savedData = decodeURIComponent(value);
+              console.log("Found data in cookie");
+              break;
+            }
+          }
+        } catch (e) {
+          console.error("Cookie read failed:", e);
+        }
       }
       
       if (savedData) {
         const reviewData = JSON.parse(savedData);
+        console.log("Loading review data:", reviewData);
         
-        // Clear existing sketches
+        // Clear existing sketches first
         graphicsLayer.removeAll();
+        console.log("Cleared existing graphics");
         
         // Recreate sketches
-        reviewData.sketches.forEach(sketchData => {
-          const graphic = new Graphic({
-            geometry: sketchData.geometry,
-            symbol: sketchData.symbol,
-            attributes: sketchData.attributes
-          });
-          graphicsLayer.add(graphic);
+        let loadedCount = 0;
+        reviewData.sketches.forEach((sketchData, index) => {
+          try {
+            const graphic = new Graphic({
+              geometry: sketchData.geometry,
+              symbol: sketchData.symbol,
+              attributes: sketchData.attributes || {}
+            });
+            graphicsLayer.add(graphic);
+            loadedCount++;
+            console.log(`Loaded sketch ${index}:`, sketchData.type);
+          } catch (e) {
+            console.error(`Error loading sketch ${index}:`, e);
+          }
         });
         
-        showControlStatus(`📁 Review loaded (${reviewData.sketches.length} sketches)`, "success");
-        console.log("Review loaded:", reviewData);
+        showControlStatus(`📁 Review loaded (${loadedCount}/${reviewData.sketches.length} sketches)`, "success");
+        console.log(`Successfully loaded ${loadedCount} sketches`);
+        
+        // Show review info
+        if (reviewData.reviewId) {
+          setTimeout(() => {
+            showControlStatus(`📁 Loaded review ID: ${reviewData.reviewId.slice(-8)}`, "info");
+          }, 2000);
+        }
+        
       } else {
-        showControlStatus("No saved review found", "info");
+        showControlStatus("📭 No saved review found", "info");
+        console.log("No saved review data found in any storage");
+        
+        // Debug: show what's in storage
+        console.log("localStorage keys:", Object.keys(localStorage));
+        console.log("sessionStorage keys:", Object.keys(sessionStorage));
+        console.log("cookies:", document.cookie);
       }
       
     } catch (error) {
       console.error("Error loading review:", error);
-      showControlStatus("❌ Error loading review", "error");
+      showControlStatus("❌ Error loading review: " + error.message, "error");
     }
   };
 
