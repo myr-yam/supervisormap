@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Supervisor Map</title>
+    <meta name="viewport" content="initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <link rel="stylesheet" href="https://js.arcgis.com/4.29/esri/themes/light/main.css" />
+    <script src="https://js.arcgis.com/4.29/"></script>
+    <style>
+      html, body, #viewDiv { height: 100%; margin: 0; padding: 0; }
+      #sketchDiv {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        z-index: 99;
+        background: white;
+        padding: 10px;
+        border-radius: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="viewDiv"></div>
+    <div id="sketchDiv"></div>
+
+    <script>
+      require([
+        "esri/Map",
+        "esri/views/MapView",
+        "esri/widgets/Sketch",
+        "esri/layers/GraphicsLayer"
+      ], function(Map, MapView, Sketch, GraphicsLayer) {
+
+        function getCookie(name) {
+          const value = `; ${document.cookie}`;
+          const parts = value.split(`; ${name}=`);
+          if (parts.length === 2) return parts.pop().split(';').shift();
+        }
+
+        function setCookie(name, value, days) {
+          const d = new Date();
+          d.setTime(d.getTime() + (days*24*60*60*1000));
+          document.cookie = `${name}=${value};expires=${d.toUTCString()};path=/`;
+        }
+
+        const graphicsLayer = new GraphicsLayer();
+        const map = new Map({
+          basemap: "topo-vector",
+          layers: [graphicsLayer]
+        });
+
+        // Get engineer's location
+        let engineerCoords = getCookie("engineerCoords");
+        let centerCoords = [39.8, 21.4]; // default [lon, lat]
+        if (engineerCoords) {
+          let [lat, lon] = engineerCoords.split(",").map(Number);
+          centerCoords = [lon, lat]; // ArcGIS expects [lon, lat]
+        }
+
+        const view = new MapView({
+          container: "viewDiv",
+          map: map,
+          center: centerCoords,
+          zoom: 15
+        });
+
+        const sketch = new Sketch({
+          layer: graphicsLayer,
+          view: view,
+          creationMode: "update",
+          availableCreateTools: ["point", "polyline", "polygon", "rectangle", "circle"],
+          container: "sketchDiv" 
+        });
+
+        // Save each completed sketch to cookie
+        sketch.on("create", function(event) {
+          if (event.state === "complete") {
+            const geom = event.graphic.geometry.toJSON();
+            let existing = getCookie("supervisorSketches");
+            let arr = existing ? JSON.parse(existing) : [];
+            arr.push(geom);
+            setCookie("supervisorSketches", JSON.stringify(arr), 1);
+          }
+        });
+      });
+    </script>
+  </body>
+</html>
