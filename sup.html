@@ -2,12 +2,13 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>ArcGIS Map in Joget - Supervisor</title>
+    <title>Supervisor Review Form - ArcGIS Map</title>
     <meta name="viewport" content="initial-scale=1, maximum-scale=1, user-scalable=no" />
     <link rel="stylesheet" href="https://js.arcgis.com/4.29/esri/themes/light/main.css" />
     <script src="https://js.arcgis.com/4.29/"></script>
     <style>
       html, body, #viewDiv { height: 100%; margin: 0; padding: 0; }
+      
       #sketchDiv {
         position: absolute;
         top: 10px;
@@ -16,40 +17,105 @@
         background: white;
         padding: 10px;
         border-radius: 6px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
       }
-      #controlsDiv {
+      
+      #controlsPanel {
         position: absolute;
         top: 10px;
         right: 10px;
         z-index: 99;
-        background: white;
-        padding: 10px;
-        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.95);
+        padding: 15px;
+        border-radius: 8px;
         font-family: Arial, sans-serif;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        min-width: 250px;
       }
-      #statusDiv {
+      
+      #inspectorPanel {
         position: absolute;
         bottom: 10px;
         left: 10px;
         z-index: 99;
-        background: white;
-        padding: 10px;
-        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.95);
+        padding: 15px;
+        border-radius: 8px;
         font-family: Arial, sans-serif;
-        font-size: 12px;
-        max-width: 300px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        max-width: 350px;
       }
+      
+      .panel-title {
+        font-weight: bold;
+        color: #333;
+        margin-bottom: 10px;
+        font-size: 14px;
+      }
+      
       .control-button {
-        margin: 5px;
+        margin: 5px 0;
         padding: 8px 12px;
         background: #0079c1;
         color: white;
         border: none;
         border-radius: 4px;
         cursor: pointer;
+        font-size: 12px;
+        width: 100%;
       }
+      
       .control-button:hover {
         background: #005a87;
+      }
+      
+      .control-button.danger {
+        background: #dc3545;
+      }
+      
+      .control-button.danger:hover {
+        background: #c82333;
+      }
+      
+      .control-button.success {
+        background: #28a745;
+      }
+      
+      .control-button.success:hover {
+        background: #218838;
+      }
+      
+      .coord-display {
+        background: #e8f4fd;
+        padding: 10px;
+        border-radius: 4px;
+        margin: 10px 0;
+        font-family: monospace;
+        font-size: 12px;
+        color: #0066cc;
+        border-left: 4px solid #0066cc;
+      }
+      
+      .status {
+        font-size: 11px;
+        margin-top: 5px;
+        padding: 5px;
+        border-radius: 3px;
+      }
+      
+      .status.success {
+        background: #d4edda;
+        color: #155724;
+      }
+      
+      .status.error {
+        background: #f8d7da;
+        color: #721c24;
+      }
+      
+      .status.info {
+        background: #d1ecf1;
+        color: #0c5460;
       }
     </style>
   </head>
@@ -57,271 +123,309 @@
     <div id="viewDiv"></div>
     <div id="sketchDiv"></div>
     
-    <div id="controlsDiv">
-      <div><strong>Supervisor Controls</strong></div>
-      <button class="control-button" onclick="saveSketchesToCookie()">Save Sketches</button>
-      <button class="control-button" onclick="loadSketchesFromCookie()">Load Sketches</button>
-      <button class="control-button" onclick="clearSketches()">Clear All</button>
-      <button class="control-button" onclick="exportSketchData()">Export Data</button>
+    <div id="controlsPanel">
+      <div class="panel-title">🔧 Supervisor Tools</div>
+      <button class="control-button success" onclick="saveReview()">💾 Save Review</button>
+      <button class="control-button" onclick="loadSavedReview()">📁 Load Saved</button>
+      <button class="control-button danger" onclick="clearAllSketches()">🗑️ Clear All</button>
+      <button class="control-button" onclick="centerOnInspection()">🎯 Go to Site</button>
+      <div id="controlStatus" class="status" style="display:none; margin-top:10px;"></div>
     </div>
     
-    <div id="statusDiv">
-      <div><strong>Inspector Location:</strong></div>
-      <div id="inspectorCoords">Loading...</div>
-      <div id="sketchStatus">Ready for sketching</div>
+    <div id="inspectorPanel">
+      <div class="panel-title">📍 Inspection Site Location</div>
+      <div id="inspectorInfo" class="coord-display">Loading inspection location...</div>
+      <div id="inspectionStatus" class="status info">Checking for inspection data...</div>
     </div>
     
     <script>
-  require([
-    "esri/Map",
-    "esri/views/MapView",
-    "esri/widgets/Sketch",
-    "esri/layers/GraphicsLayer",
-    "esri/Graphic",
-    "esri/geometry/Point"
-  ], function(Map, MapView, Sketch, GraphicsLayer, Graphic, Point) {
+require([
+  "esri/Map",
+  "esri/views/MapView",
+  "esri/widgets/Sketch",
+  "esri/layers/GraphicsLayer",
+  "esri/Graphic",
+  "esri/geometry/Point"
+], function(Map, MapView, Sketch, GraphicsLayer, Graphic, Point) {
 
-    const graphicsLayer = new GraphicsLayer();
-    const inspectorLayer = new GraphicsLayer(); // Separate layer for inspector location
+  const graphicsLayer = new GraphicsLayer(); // For supervisor sketches
+  const inspectorLayer = new GraphicsLayer(); // For inspector location
+  let inspectionCoordinates = null;
+  let view, sketch;
 
-    const map = new Map({
-      basemap: "topo-vector",
-      layers: [inspectorLayer, graphicsLayer]
+  const map = new Map({
+    basemap: "topo-vector",
+    layers: [inspectorLayer, graphicsLayer]
+  });
+
+  // Function to load inspection coordinates
+  function loadInspectionCoordinates() {
+    let coordinatesData = null;
+    
+    try {
+      // Try localStorage first
+      let savedData = localStorage.getItem('inspectionCoordinates');
+      
+      if (!savedData) {
+        // Try sessionStorage
+        savedData = sessionStorage.getItem('inspectionCoordinates');
+      }
+      
+      if (!savedData) {
+        // Try cookies as fallback
+        const cookies = document.cookie.split(';');
+        for (let cookie of cookies) {
+          const [name, value] = cookie.trim().split('=');
+          if (name === 'inspectionCoordinates') {
+            savedData = decodeURIComponent(value);
+            break;
+          }
+        }
+      }
+      
+      if (savedData) {
+        coordinatesData = JSON.parse(savedData);
+        console.log("Inspection coordinates loaded:", coordinatesData);
+      }
+      
+    } catch (error) {
+      console.error("Error loading inspection coordinates:", error);
+    }
+    
+    return coordinatesData;
+  }
+
+  // Function to display inspector location on map
+  function displayInspectorLocation(lat, lon) {
+    // Clear previous inspector markers
+    inspectorLayer.removeAll();
+    
+    const point = new Point({
+      longitude: lon,
+      latitude: lat
     });
 
-    let view, sketch;
-    let inspectorCoordinates = null;
-
-    // Function to get coordinates from cookie
-    function getCoordinatesFromCookie() {
-      const cookies = document.cookie.split(';');
-      console.log("Looking for coordinates in cookies...");
-      
-      for (let cookie of cookies) {
-        const [name, value] = cookie.trim().split('=');
-        if (name === 'inspectionCoordinates') {
-          try {
-            const coordinates = JSON.parse(decodeURIComponent(value));
-            console.log("Found coordinates in cookie:", coordinates);
-            return coordinates;
-          } catch (e) {
-            console.log("Error parsing coordinates from cookie:", e);
-          }
+    const inspectorGraphic = new Graphic({
+      geometry: point,
+      symbol: {
+        type: "simple-marker",
+        color: [255, 0, 0], // Red color for inspector location
+        size: 15,
+        outline: {
+          color: [255, 255, 255],
+          width: 3
         }
+      },
+      attributes: {
+        title: "Inspector Location",
+        type: "inspection_site"
+      },
+      popupTemplate: {
+        title: "🔍 Inspection Site",
+        content: `
+          <b>Inspector Selected Location</b><br>
+          <b>Latitude:</b> ${lat.toFixed(6)}<br>
+          <b>Longitude:</b> ${lon.toFixed(6)}<br>
+          <b>Status:</b> Under Review
+        `
       }
+    });
+
+    inspectorLayer.add(inspectorGraphic);
+    
+    // Update info panel
+    const infoDiv = document.getElementById('inspectorInfo');
+    infoDiv.innerHTML = `
+      <strong>📌 Site Coordinates:</strong><br>
+      Lat: ${lat.toFixed(6)}<br>
+      Lon: ${lon.toFixed(6)}
+    `;
+  }
+
+  // Function to initialize map
+  function initializeMap() {
+    // Load inspection coordinates
+    const coordinatesData = loadInspectionCoordinates();
+    
+    let centerLon = 31.2357, centerLat = 30.0444, zoomLevel = 10; // Default Cairo
+    
+    if (coordinatesData && coordinatesData.latitude && coordinatesData.longitude) {
+      centerLon = coordinatesData.longitude;
+      centerLat = coordinatesData.latitude;
+      zoomLevel = 16; // Zoom close to inspection site
+      inspectionCoordinates = coordinatesData;
       
-      console.log("No inspection coordinates found in cookies");
-      console.log("Available cookies:", document.cookie);
-      return null;
+      console.log("Centering map on inspection site:", centerLat, centerLon);
+      
+      // Update status
+      document.getElementById('inspectionStatus').innerHTML = 
+        `✅ Inspection site loaded (${coordinatesData.timestamp ? new Date(coordinatesData.timestamp).toLocaleString() : 'No timestamp'})`;
+    } else {
+      console.log("No inspection coordinates found, using default location");
+      document.getElementById('inspectorInfo').innerHTML = "❌ No inspection location found";
+      document.getElementById('inspectionStatus').innerHTML = 
+        "⚠️ No inspection coordinates available. Check if engineer submitted location.";
     }
 
-    // Function to display inspector location on map
-    function displayInspectorLocation(lat, lon) {
-      const point = new Point({
-        longitude: lon,
-        latitude: lat
-      });
+    // Create map view
+    view = new MapView({
+      container: "viewDiv",
+      map: map,
+      center: [centerLon, centerLat],
+      zoom: zoomLevel
+    });
 
-      const inspectorGraphic = new Graphic({
-        geometry: point,
-        symbol: {
-          type: "simple-marker",
-          color: [255, 0, 0], // Red color
-          size: 12,
-          outline: {
-            color: [255, 255, 255],
-            width: 2
-          }
-        },
-        attributes: {
-          title: "Inspector Location"
-        },
-        popupTemplate: {
-          title: "Inspector Location",
-          content: `Coordinates: ${lat.toFixed(6)}, ${lon.toFixed(6)}`
-        }
-      });
+    // Create sketch widget
+    sketch = new Sketch({
+      layer: graphicsLayer,
+      view: view,
+      creationMode: "update",
+      availableCreateTools: ["point", "polyline", "polygon", "rectangle", "circle"],
+      container: "sketchDiv"
+    });
 
-      inspectorLayer.add(inspectorGraphic);
-      
-      // Update status display
-      document.getElementById('inspectorCoords').innerHTML = 
-        `Lat: ${lat.toFixed(6)}, Lon: ${lon.toFixed(6)}`;
-    }
-
-    // Initialize map with inspector coordinates
-    function initializeMap() {
-      const coordinates = getCoordinatesFromCookie();
-      
-      let centerLon = 31.2357, centerLat = 30.0444, zoomLevel = 8; // Default Cairo coordinates
-      
-      if (coordinates) {
-        centerLon = coordinates.longitude;
-        centerLat = coordinates.latitude;
-        zoomLevel = 16; // Zoom very close to inspector location
-        inspectorCoordinates = coordinates;
+    // When view is ready, display inspector location
+    view.when(() => {
+      console.log("Map view ready");
+      if (inspectionCoordinates) {
+        displayInspectorLocation(inspectionCoordinates.latitude, inspectionCoordinates.longitude);
         
-        console.log("Found inspector coordinates:", coordinates);
-        document.getElementById('inspectorCoords').innerHTML = 
-          `Lat: ${centerLat.toFixed(6)}, Lon: ${centerLon.toFixed(6)}`;
-      } else {
-        document.getElementById('inspectorCoords').innerHTML = "No inspector location found";
-        console.log("No coordinates found in cookie");
-        
-        // Try to check all cookies for debugging
-        console.log("All cookies:", document.cookie);
-      }
-
-      view = new MapView({
-        container: "viewDiv",
-        map: map,
-        center: [centerLon, centerLat],
-        zoom: zoomLevel
-      });
-
-      sketch = new Sketch({
-        layer: graphicsLayer,
-        view: view,
-        creationMode: "update",
-        availableCreateTools: ["point", "polyline", "polygon", "rectangle", "circle"],
-        container: "sketchDiv"
-      });
-
-      // Wait for the view to load, then display inspector location
-      view.when(() => {
-        console.log("Map view is ready");
-        if (coordinates) {
-          displayInspectorLocation(coordinates.latitude, coordinates.longitude);
-          // Double-check the map is centered correctly
+        // Ensure map centers correctly
+        setTimeout(() => {
           view.goTo({
-            center: [coordinates.longitude, coordinates.latitude],
+            center: [inspectionCoordinates.longitude, inspectionCoordinates.latitude],
             zoom: 16
           });
-        }
-      });
-
-      // Listen for sketch events
-      sketch.on("create", function(event) {
-        if (event.state === "complete") {
-          updateSketchStatus("New sketch created");
-        }
-      });
-
-      sketch.on("update", function(event) {
-        if (event.state === "complete") {
-          updateSketchStatus("Sketch updated");
-        }
-      });
-    }
-
-    // Function to update status display
-    function updateSketchStatus(message) {
-      document.getElementById('sketchStatus').innerHTML = message;
-    }
-
-    // Function to save sketches to cookie
-    window.saveSketchesToCookie = function() {
-      const graphics = graphicsLayer.graphics.items;
-      const sketchData = [];
-
-      graphics.forEach((graphic, index) => {
-        const geometryJSON = graphic.geometry.toJSON();
-        const symbolJSON = graphic.symbol ? graphic.symbol.toJSON() : null;
-        
-        sketchData.push({
-          id: index,
-          geometry: geometryJSON,
-          symbol: symbolJSON,
-          attributes: graphic.attributes || {}
-        });
-      });
-
-      const sketchInfo = {
-        sketches: sketchData,
-        timestamp: new Date().toISOString(),
-        inspectorCoordinates: inspectorCoordinates
-      };
-
-      // Save to cookie (expires in 7 days)
-      const expirationDate = new Date();
-      expirationDate.setTime(expirationDate.getTime() + (7 * 24 * 60 * 60 * 1000));
-      document.cookie = `supervisorSketches=${JSON.stringify(sketchInfo)}; expires=${expirationDate.toUTCString()}; path=/`;
-      
-      updateSketchStatus(`${sketchData.length} sketches saved to cookie`);
-      console.log("Sketches saved:", sketchInfo);
-    };
-
-    // Function to load sketches from cookie
-    window.loadSketchesFromCookie = function() {
-      const cookies = document.cookie.split(';');
-      for (let cookie of cookies) {
-        const [name, value] = cookie.trim().split('=');
-        if (name === 'supervisorSketches') {
-          try {
-            const sketchInfo = JSON.parse(decodeURIComponent(value));
-            
-            // Clear existing sketches
-            graphicsLayer.removeAll();
-            
-            // Recreate graphics from saved data
-            sketchInfo.sketches.forEach(sketchData => {
-              const graphic = new Graphic({
-                geometry: sketchData.geometry,
-                symbol: sketchData.symbol,
-                attributes: sketchData.attributes
-              });
-              graphicsLayer.add(graphic);
-            });
-            
-            updateSketchStatus(`${sketchInfo.sketches.length} sketches loaded from cookie`);
-            console.log("Sketches loaded:", sketchInfo);
-            return;
-            
-          } catch (e) {
-            console.log("Error loading sketches:", e);
-            updateSketchStatus("Error loading sketches");
-          }
-        }
+        }, 1000);
       }
-      updateSketchStatus("No saved sketches found");
+    });
+
+    // Listen for sketch events
+    sketch.on("create", function(event) {
+      if (event.state === "complete") {
+        showControlStatus("New sketch created", "success");
+      }
+    });
+
+    sketch.on("update", function(event) {
+      if (event.state === "complete") {
+        showControlStatus("Sketch updated", "success");
+      }
+    });
+  }
+
+  // Function to show control status
+  function showControlStatus(message, type) {
+    const statusDiv = document.getElementById('controlStatus');
+    statusDiv.innerHTML = message;
+    statusDiv.className = `status ${type}`;
+    statusDiv.style.display = 'block';
+    
+    setTimeout(() => {
+      statusDiv.style.display = 'none';
+    }, 3000);
+  }
+
+  // Function to save supervisor review
+  window.saveReview = function() {
+    const graphics = graphicsLayer.graphics.items;
+    const reviewData = {
+      inspectionCoordinates: inspectionCoordinates,
+      sketches: [],
+      reviewTimestamp: new Date().toISOString(),
+      sketchCount: graphics.length
     };
 
-    // Function to clear all sketches
-    window.clearSketches = function() {
-      graphicsLayer.removeAll();
-      updateSketchStatus("All sketches cleared");
-    };
-
-    // Function to export sketch data (for integration with Joget)
-    window.exportSketchData = function() {
-      const graphics = graphicsLayer.graphics.items;
-      const exportData = {
-        inspectorCoordinates: inspectorCoordinates,
-        sketches: [],
-        exportTimestamp: new Date().toISOString()
-      };
-
-      graphics.forEach((graphic, index) => {
-        exportData.sketches.push({
-          id: index,
-          geometry: graphic.geometry.toJSON(),
-          symbol: graphic.symbol ? graphic.symbol.toJSON() : null
-        });
+    graphics.forEach((graphic, index) => {
+      reviewData.sketches.push({
+        id: index,
+        geometry: graphic.geometry.toJSON(),
+        symbol: graphic.symbol ? graphic.symbol.toJSON() : null,
+        attributes: graphic.attributes || {}
       });
+    });
 
-      // Send data to parent window (Joget form)
-      window.parent.postMessage({
-        type: "sketchDataExport",
-        data: exportData
-      }, "*");
+    try {
+      // Save to multiple storage locations
+      localStorage.setItem('supervisorReview', JSON.stringify(reviewData));
+      sessionStorage.setItem('supervisorReview', JSON.stringify(reviewData));
+      
+      // Send to parent window (Joget form)
+      if (window.parent) {
+        window.parent.postMessage({
+          type: "supervisorReview",
+          data: reviewData
+        }, "*");
+      }
 
-      console.log("Sketch data exported:", exportData);
-      updateSketchStatus("Sketch data exported to form");
-    };
+      console.log("Review saved:", reviewData);
+      showControlStatus(`✅ Review saved! (${graphics.length} sketches)`, "success");
+      
+    } catch (error) {
+      console.error("Error saving review:", error);
+      showControlStatus("❌ Error saving review", "error");
+    }
+  };
 
-    // Initialize the map when page loads
-    initializeMap();
-  });
+  // Function to load saved review
+  window.loadSavedReview = function() {
+    try {
+      let savedData = localStorage.getItem('supervisorReview');
+      
+      if (!savedData) {
+        savedData = sessionStorage.getItem('supervisorReview');
+      }
+      
+      if (savedData) {
+        const reviewData = JSON.parse(savedData);
+        
+        // Clear existing sketches
+        graphicsLayer.removeAll();
+        
+        // Recreate sketches
+        reviewData.sketches.forEach(sketchData => {
+          const graphic = new Graphic({
+            geometry: sketchData.geometry,
+            symbol: sketchData.symbol,
+            attributes: sketchData.attributes
+          });
+          graphicsLayer.add(graphic);
+        });
+        
+        showControlStatus(`📁 Review loaded (${reviewData.sketches.length} sketches)`, "success");
+        console.log("Review loaded:", reviewData);
+      } else {
+        showControlStatus("No saved review found", "info");
+      }
+      
+    } catch (error) {
+      console.error("Error loading review:", error);
+      showControlStatus("❌ Error loading review", "error");
+    }
+  };
+
+  // Function to clear all sketches
+  window.clearAllSketches = function() {
+    graphicsLayer.removeAll();
+    showControlStatus("🗑️ All sketches cleared", "success");
+  };
+
+  // Function to center on inspection site
+  window.centerOnInspection = function() {
+    if (inspectionCoordinates) {
+      view.goTo({
+        center: [inspectionCoordinates.longitude, inspectionCoordinates.latitude],
+        zoom: 16
+      });
+      showControlStatus("🎯 Centered on inspection site", "success");
+    } else {
+      showControlStatus("❌ No inspection site coordinates", "error");
+    }
+  };
+
+  // Initialize the map when page loads
+  initializeMap();
+});
 </script>
 
   </body>
