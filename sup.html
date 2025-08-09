@@ -129,6 +129,7 @@
       <button class="control-button" onclick="loadSavedReview()">📁 Load Saved</button>
       <button class="control-button danger" onclick="clearAllSketches()">🗑️ Clear All</button>
       <button class="control-button" onclick="centerOnInspection()">🎯 Go to Site</button>
+      <button class="control-button" onclick="debugSketches()" style="background:#6c757d;">🐛 Debug</button>
       <div id="controlStatus" class="status" style="display:none; margin-top:10px;"></div>
     </div>
     
@@ -525,6 +526,29 @@ require([
     } else {
       showControlStatus("❌ No inspection site coordinates", "error");
     }
+  };
+
+  // Debug function to check sketches
+  window.debugSketches = function() {
+    const graphics = graphicsLayer.graphics.items;
+    console.log("=== SKETCH DEBUG ===");
+    console.log("Graphics layer items:", graphics.length);
+    console.log("Graphics layer:", graphicsLayer);
+    console.log("All graphics:", graphics);
+    
+    graphics.forEach((graphic, index) => {
+      console.log(`Graphic ${index}:`, {
+        geometry: graphic.geometry,
+        symbol: graphic.symbol,
+        type: graphic.geometry?.type
+      });
+    });
+    
+    // Check storage
+    console.log("localStorage supervisorReview:", localStorage.getItem('supervisorReview'));
+    console.log("sessionStorage supervisorReview:", sessionStorage.getItem('supervisorReview'));
+    
+    showControlStatus(`🐛 Debug: ${graphics.length} graphics found. Check console for details.`, "info");
   };
 
   // Initialize the map when page loads
