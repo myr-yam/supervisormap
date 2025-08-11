@@ -10,14 +10,10 @@
   <script src="https://js.arcgis.com/4.29/"></script>
 
   <style>
-    html, body {
+    html, body, #viewDiv {
       height: 100%;
       margin: 0;
       padding: 0;
-    }
-    #viewDiv {
-      height: 100%;
-      width: 100%;
     }
     .custom-toolbar {
       position: absolute;
@@ -60,17 +56,18 @@
       // Get params from iframe URL
       const urlParams = new URLSearchParams(window.location.search);
       const formId = urlParams.get("form_id") || "";
-      const lat = parseFloat(urlParams.get("lat")) || 25.276987; // Default: Dubai lat
-      const lng = parseFloat(urlParams.get("lng")) || 55.296249; // Default: Dubai lng
-      let sketches = [];
+      const lat = parseFloat(urlParams.get("lat")) || 25.276987; // Default: Dubai
+      const lng = parseFloat(urlParams.get("lng")) || 55.296249; // Default: Dubai
 
+      // Parse sketches safely
+      let sketches = [];
       try {
         const sketchesParam = urlParams.get("sketches");
-        if (sketchesParam) {
+        if (sketchesParam && sketchesParam.trim() !== "") {
           sketches = JSON.parse(sketchesParam);
         }
       } catch (e) {
-        console.warn("Invalid sketches JSON, starting with empty set");
+        console.warn("Invalid sketches JSON, starting empty");
       }
 
       // Map & layer setup
@@ -87,9 +84,9 @@
         zoom: 16
       });
 
-      // Load existing sketches (if any)
+      // Load existing sketches if available
       view.when(() => {
-        if (sketches.length > 0) {
+        if (Array.isArray(sketches) && sketches.length > 0) {
           sketches.forEach(g => graphicsLayer.add(g));
         }
       });
@@ -100,11 +97,9 @@
         view: view,
         creationMode: "update"
       });
-
-      // Add only programmatically — not as a full ArcGIS UI panel
       view.ui.add(sketchWidget, "top-left");
 
-      // Button events
+      // Save Review button
       document.getElementById("saveReviewBtn").addEventListener("click", () => {
         const sketchData = graphicsLayer.graphics.toArray().map(g => g.toJSON());
         window.parent.postMessage({
@@ -118,6 +113,7 @@
         alert("Review saved to Joget.");
       });
 
+      // Clear All button
       document.getElementById("clearAllBtn").addEventListener("click", () => {
         graphicsLayer.removeAll();
       });
