@@ -1,123 +1,157 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Supervisor Map Review</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Supervisor Map Review</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  <!-- ArcGIS CSS & JS -->
-  <link rel="stylesheet" href="https://js.arcgis.com/4.29/esri/themes/light/main.css">
-  <script src="https://js.arcgis.com/4.29/"></script>
+    <!-- ArcGIS -->
+    <link rel="stylesheet" href="https://js.arcgis.com/4.27/esri/themes/light/main.css" />
+    <script src="https://js.arcgis.com/4.27/"></script>
 
-  <style>
-    html, body, #viewDiv {
-      height: 100%;
-      margin: 0;
-      padding: 0;
-    }
-    .custom-toolbar {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background: white;
-      padding: 6px;
-      border-radius: 6px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-      z-index: 99;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      width: 120px;
-    }
-    .custom-toolbar button {
-      padding: 4px;
-      font-size: 12px;
-      cursor: pointer;
-    }
-  </style>
-</head>
-<body>
-  <div id="viewDiv"></div>
-
-  <!-- Custom toolbar -->
-  <div class="custom-toolbar">
-    <button id="saveReviewBtn">Save Review</button>
-    <button id="clearAllBtn">Clear All</button>
-  </div>
-
-  <script>
-    require([
-      "esri/Map",
-      "esri/views/MapView",
-      "esri/layers/GraphicsLayer",
-      "esri/widgets/Sketch"
-    ], function(Map, MapView, GraphicsLayer, Sketch) {
-
-      // Get params from iframe URL
-      const urlParams = new URLSearchParams(window.location.search);
-      const formId = urlParams.get("form_id") || "";
-      const lat = parseFloat(urlParams.get("lat")) || 25.276987; // Default: Dubai
-      const lng = parseFloat(urlParams.get("lng")) || 55.296249; // Default: Dubai
-
-      // Parse sketches safely
-      let sketches = [];
-      try {
-        const sketchesParam = urlParams.get("sketches");
-        if (sketchesParam && sketchesParam.trim() !== "") {
-          sketches = JSON.parse(sketchesParam);
-        }
-      } catch (e) {
-        console.warn("Invalid sketches JSON, starting empty");
+    <style>
+      html, body, #viewDiv {
+        height: 100%;
+        margin: 0;
+        padding: 0;
       }
+      .custom-toolbar {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: white;
+        padding: 6px;
+        border-radius: 6px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        z-index: 99;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        width: 120px;
+      }
+      .custom-toolbar button {
+        padding: 4px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="viewDiv"></div>
 
-      // Map & layer setup
-      const graphicsLayer = new GraphicsLayer();
-      const map = new Map({
-        basemap: "streets-navigation-vector",
-        layers: [graphicsLayer]
-      });
+    <!-- Custom toolbar -->
+    <div class="custom-toolbar">
+      <button id="saveReviewBtn">Save Review</button>
+      <button id="clearAllBtn">Clear All</button>
+    </div>
 
-      const view = new MapView({
-        container: "viewDiv",
-        map: map,
-        center: [lng, lat],
-        zoom: 16
-      });
+    <script>
+      require([
+        "esri/Map",
+        "esri/views/MapView",
+        "esri/layers/GraphicsLayer",
+        "esri/Graphic",
+        "esri/widgets/Sketch"
+      ], function(Map, MapView, GraphicsLayer, Graphic, Sketch) {
 
-      // Load existing sketches if available
-      view.when(() => {
-        if (Array.isArray(sketches) && sketches.length > 0) {
-          sketches.forEach(g => graphicsLayer.add(g));
+        // Get params from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const formId = urlParams.get("form_id") || "";
+        const lat = parseFloat(urlParams.get("lat")) || 25.276987; // fallback: Dubai
+        const lng = parseFloat(urlParams.get("lng")) || 55.296249;
+
+        // Parse sketches safely
+        let sketches = [];
+        try {
+          const sketchesParam = urlParams.get("sketches");
+          if (sketchesParam && sketchesParam.trim() !== "") {
+            sketches = JSON.parse(sketchesParam);
+          }
+        } catch (e) {
+          console.warn("Invalid sketches JSON, starting empty");
         }
-      });
 
-      // Sketch widget
-      const sketchWidget = new Sketch({
-        layer: graphicsLayer,
-        view: view,
-        creationMode: "update"
-      });
-      view.ui.add(sketchWidget, "top-left");
+        // Create map & view
+        const graphicsLayer = new GraphicsLayer();
+        const map = new Map({
+          basemap: "streets-navigation-vector",
+          layers: [graphicsLayer]
+        });
 
-      // Save Review button
-      document.getElementById("saveReviewBtn").addEventListener("click", () => {
-        const sketchData = graphicsLayer.graphics.toArray().map(g => g.toJSON());
-        window.parent.postMessage({
-          type: "supervisorReview",
-          form_id: formId,
-          lat: lat,
-          lng: lng,
-          supervisor_sketches: JSON.stringify(sketchData),
-          review_status: "rejected"
-        }, "*");
-        alert("Review saved to Joget.");
-      });
+        const view = new MapView({
+          container: "viewDiv",
+          map: map,
+          center: [lng, lat],
+          zoom: 16
+        });
 
-      // Clear All button
-      document.getElementById("clearAllBtn").addEventListener("click", () => {
-        graphicsLayer.removeAll();
+        // Add engineer's location pin
+        view.when(() => {
+          const locationPoint = {
+            type: "point",
+            longitude: lng,
+            latitude: lat
+          };
+          const locationSymbol = {
+            type: "simple-marker",
+            color: "red",
+            size: "12px"
+          };
+          const locationGraphic = new Graphic({
+            geometry: locationPoint,
+            symbol: locationSymbol
+          });
+          graphicsLayer.add(locationGraphic);
+
+          // Load existing sketches
+          if (Array.isArray(sketches) && sketches.length > 0) {
+            sketches.forEach(g => {
+              try {
+                graphicsLayer.add(Graphic.fromJSON(g));
+              } catch (err) {
+                console.warn("Error loading sketch:", err);
+              }
+            });
+          }
+        });
+
+        // Sketch widget
+        const sketchWidget = new Sketch({
+          layer: graphicsLayer,
+          view: view,
+          creationMode: "update"
+        });
+        view.ui.add(sketchWidget, "top-left");
+
+        // Save Review button
+        document.getElementById("saveReviewBtn").addEventListener("click", () => {
+          const sketchData = graphicsLayer.graphics
+            .toArray()
+            .filter(g => g.geometry.type !== "point") // don't save location pin
+            .map(g => g.toJSON());
+
+          window.parent.postMessage({
+            type: "supervisorReview",
+            form_id: formId,
+            lat: lat,
+            lng: lng,
+            supervisor_sketches: JSON.stringify(sketchData),
+            review_status: "rejected"
+          }, "*");
+
+          alert("Review saved to Joget.");
+        });
+
+        // Clear All button
+        document.getElementById("clearAllBtn").addEventListener("click", () => {
+          graphicsLayer.removeAll();
+          // Re-add location pin
+          graphicsLayer.add(new Graphic({
+            geometry: { type: "point", longitude: lng, latitude: lat },
+            symbol: { type: "simple-marker", color: "red", size: "12px" }
+          }));
+        });
       });
-    });
-  </script>
-</body>
+    </script>
+  </body>
 </html>
