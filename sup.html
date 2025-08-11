@@ -1,138 +1,127 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Supervisor Review Map</title>
-  <meta name="viewport" content="initial-scale=1, maximum-scale=1, user-scalable=no" />
-  <link rel="stylesheet" href="https://js.arcgis.com/4.29/esri/themes/light/main.css" />
+  <meta charset="UTF-8" />
+  <title>Supervisor Map Review</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- ArcGIS CSS & JS -->
+  <link rel="stylesheet" href="https://js.arcgis.com/4.29/esri/themes/light/main.css">
   <script src="https://js.arcgis.com/4.29/"></script>
+
   <style>
-    html, body, #viewDiv { height: 100%; margin: 0; padding: 0; }
-    #sketchDiv {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      z-index: 99;
-      background: white;
-      padding: 5px;
-      border-radius: 4px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
     }
-    #controlsPanel {
+    #viewDiv {
+      height: 100%;
+      width: 100%;
+    }
+    .custom-toolbar {
       position: absolute;
       top: 10px;
       right: 10px;
-      z-index: 99;
-      background: rgba(255, 255, 255, 0.95);
-      padding: 8px;
+      background: white;
+      padding: 6px;
       border-radius: 6px;
-      font-family: Arial, sans-serif;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-      min-width: 120px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      z-index: 99;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      width: 120px;
     }
-    .control-button {
-      margin: 5px 0;
-      padding: 6px 10px;
-      background: #0079c1;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
+    .custom-toolbar button {
+      padding: 4px;
       font-size: 12px;
-      width: 100%;
+      cursor: pointer;
     }
-    .control-button.success { background: #28a745; }
-    .control-button.danger { background: #dc3545; }
-    .control-button:hover { opacity: 0.9; }
   </style>
 </head>
 <body>
   <div id="viewDiv"></div>
-  <div id="sketchDiv"></div>
-  <div id="controlsPanel">
-    <button class="control-button success" onclick="saveReview()">💾 Save Review</button>
-    <button class="control-button danger" onclick="clearAllSketches()">🗑️ Clear All</button>
+
+  <!-- Custom toolbar -->
+  <div class="custom-toolbar">
+    <button id="saveReviewBtn">Save Review</button>
+    <button id="clearAllBtn">Clear All</button>
   </div>
 
-<script>
-require([
-  "esri/Map", "esri/views/MapView", "esri/widgets/Sketch", "esri/layers/GraphicsLayer", "esri/Graphic", "esri/geometry/Point"
-], function(Map, MapView, Sketch, GraphicsLayer, Graphic, Point) {
+  <script>
+    require([
+      "esri/Map",
+      "esri/views/MapView",
+      "esri/layers/GraphicsLayer",
+      "esri/widgets/Sketch"
+    ], function(Map, MapView, GraphicsLayer, Sketch) {
 
-  const params = new URLSearchParams(window.location.search);
-  const formId = params.get("form_id");
-  const lat = parseFloat(params.get("lat"));
-  const lng = parseFloat(params.get("lng"));
-  const sketchesJson = params.get("sketches");
+      // Get params from iframe URL
+      const urlParams = new URLSearchParams(window.location.search);
+      const formId = urlParams.get("form_id") || "";
+      const lat = parseFloat(urlParams.get("lat")) || 25.276987; // Default: Dubai lat
+      const lng = parseFloat(urlParams.get("lng")) || 55.296249; // Default: Dubai lng
+      let sketches = [];
 
-  const graphicsLayer = new GraphicsLayer(); 
-  const inspectorLayer = new GraphicsLayer(); 
+      try {
+        const sketchesParam = urlParams.get("sketches");
+        if (sketchesParam) {
+          sketches = JSON.parse(sketchesParam);
+        }
+      } catch (e) {
+        console.warn("Invalid sketches JSON, starting with empty set");
+      }
 
-  const map = new Map({
-    basemap: "topo-vector",
-    layers: [inspectorLayer, graphicsLayer]
-  });
-
-  const view = new MapView({
-    container: "viewDiv",
-    map: map,
-    center: [lng, lat],
-    zoom: 16
-  });
-
-  inspectorLayer.add(new Graphic({
-    geometry: new Point({ longitude: lng, latitude: lat }),
-    symbol: { type: "simple-marker", color: [255, 0, 0], size: 15, outline: { color: [255,255,255], width: 3 } }
-  }));
-
-  const sketch = new Sketch({
-    layer: graphicsLayer,
-    view: view,
-    creationMode: "update",
-    availableCreateTools: ["point", "polyline", "polygon", "rectangle", "circle"],
-    container: "sketchDiv"
-  });
-
-  // Load existing sketches if present
-  if (sketchesJson) {
-    try {
-      const sketches = JSON.parse(sketchesJson);
-      sketches.forEach(s => {
-        graphicsLayer.add(new Graphic({
-          geometry: s.geometry,
-          symbol: s.symbol
-        }));
+      // Map & layer setup
+      const graphicsLayer = new GraphicsLayer();
+      const map = new Map({
+        basemap: "streets-navigation-vector",
+        layers: [graphicsLayer]
       });
-    } catch (e) {
-      console.error("Error loading sketches:", e);
-    }
-  }
 
-  window.saveReview = function() {
-    const sketches = graphicsLayer.graphics.items.map(g => ({
-      geometry: g.geometry.toJSON(),
-      symbol: g.symbol.toJSON()
-    }));
-    const sketchesData = JSON.stringify(sketches);
+      const view = new MapView({
+        container: "viewDiv",
+        map: map,
+        center: [lng, lat],
+        zoom: 16
+      });
 
-    if (window.parent) {
-      window.parent.postMessage({
-        type: "supervisorReview",
-        form_id: formId,
-        lat: lat,
-        lng: lng,
-        supervisor_sketches: sketchesData,
-        review_status: "rejected"
-      }, "*");
-    }
-    alert("Review saved to form.");
-  };
+      // Load existing sketches (if any)
+      view.when(() => {
+        if (sketches.length > 0) {
+          sketches.forEach(g => graphicsLayer.add(g));
+        }
+      });
 
-  window.clearAllSketches = function() {
-    graphicsLayer.removeAll();
-  };
+      // Sketch widget
+      const sketchWidget = new Sketch({
+        layer: graphicsLayer,
+        view: view,
+        creationMode: "update"
+      });
 
-});
-</script>
+      // Add only programmatically — not as a full ArcGIS UI panel
+      view.ui.add(sketchWidget, "top-left");
+
+      // Button events
+      document.getElementById("saveReviewBtn").addEventListener("click", () => {
+        const sketchData = graphicsLayer.graphics.toArray().map(g => g.toJSON());
+        window.parent.postMessage({
+          type: "supervisorReview",
+          form_id: formId,
+          lat: lat,
+          lng: lng,
+          supervisor_sketches: JSON.stringify(sketchData),
+          review_status: "rejected"
+        }, "*");
+        alert("Review saved to Joget.");
+      });
+
+      document.getElementById("clearAllBtn").addEventListener("click", () => {
+        graphicsLayer.removeAll();
+      });
+    });
+  </script>
 </body>
 </html>
