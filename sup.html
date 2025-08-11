@@ -26,11 +26,11 @@
         right: 10px;
         z-index: 99;
         background: rgba(255, 255, 255, 0.95);
-        padding: 15px;
+        padding: 10px;
         border-radius: 8px;
         font-family: Arial, sans-serif;
         box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-        min-width: 250px;
+        width: 150px;
       }
       
       #inspectorPanel {
@@ -43,25 +43,25 @@
         border-radius: 8px;
         font-family: Arial, sans-serif;
         box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-        max-width: 350px;
+        max-width: 300px;
       }
       
       .panel-title {
         font-weight: bold;
         color: #333;
         margin-bottom: 10px;
-        font-size: 14px;
+        font-size: 13px;
       }
       
       .control-button {
         margin: 5px 0;
-        padding: 8px 12px;
+        padding: 6px 8px;
         background: #0079c1;
         color: white;
         border: none;
         border-radius: 4px;
         cursor: pointer;
-        font-size: 12px;
+        font-size: 11px;
         width: 100%;
       }
       
@@ -87,19 +87,19 @@
       
       .coord-display {
         background: #e8f4fd;
-        padding: 10px;
+        padding: 8px;
         border-radius: 4px;
-        margin: 10px 0;
+        margin: 8px 0;
         font-family: monospace;
-        font-size: 12px;
+        font-size: 11px;
         color: #0066cc;
-        border-left: 4px solid #0066cc;
+        border-left: 3px solid #0066cc;
       }
       
       .status {
-        font-size: 11px;
+        font-size: 10px;
         margin-top: 5px;
-        padding: 5px;
+        padding: 4px;
         border-radius: 3px;
       }
       
@@ -124,17 +124,15 @@
     <div id="sketchDiv"></div>
     
     <div id="controlsPanel">
-      <div class="panel-title">🔧 Supervisor Tools</div>
+      <div class="panel-title">🔧 Tools</div>
       <button class="control-button success" onclick="saveReview()">💾 Save Review</button>
-      <button class="control-button" onclick="loadSavedReview()">📁 Load Saved</button>
       <button class="control-button danger" onclick="clearAllSketches()">🗑️ Clear All</button>
-      <button class="control-button" onclick="centerOnInspection()">🎯 Go to Site</button>
-      <button class="control-button" onclick="debugSketches()" style="background:#6c757d;">🐛 Debug</button>
-      <div id="controlStatus" class="status" style="display:none; margin-top:10px;"></div>
+      <div id="controlStatus" class="status" style="display:none; margin-top:8px;"></div>
     </div>
     
     <div id="inspectorPanel">
-      <div class="panel-title">📍 Inspection Site Location</div>
+      <div class="panel-title">📍 Inspection Details</div>
+      <div id="formIdDisplay" class="coord-display">Form ID: Loading...</div>
       <div id="inspectorInfo" class="coord-display">Loading inspection location...</div>
       <div id="inspectionStatus" class="status info">Checking for inspection data...</div>
     </div>
@@ -152,6 +150,7 @@ require([
   const graphicsLayer = new GraphicsLayer(); // For supervisor sketches
   const inspectorLayer = new GraphicsLayer(); // For inspector location
   let inspectionCoordinates = null;
+  let currentFormId = null;
   let view, sketch;
 
   const map = new Map({
@@ -159,34 +158,59 @@ require([
     layers: [inspectorLayer, graphicsLayer]
   });
 
-  // Function to load inspection coordinates
-  function loadInspectionCoordinates() {
+  // Function to get form ID from URL parameters or Joget form
+  function getFormId() {
+    // Try URL parameters first
+    const urlParams = new URLSearchParams(window.location.search);
+    const formIdFromUrl = urlParams.get('formId');
+    if (formIdFromUrl) {
+      return formIdFromUrl;
+    }
+
+    // Try to get from Joget form field
+    try {
+      const formIdElement = window.parent.document.querySelector('[name="form_id"]');
+      if (formIdElement && formIdElement.value) {
+        return formIdElement.value;
+      }
+    } catch (e) {
+      console.log("Could not access parent form:", e);
+    }
+
+    return null;
+  }
+
+  // Function to load inspection coordinates by form ID
+  function loadInspectionCoordinates(formId) {
     let coordinatesData = null;
     
     try {
-      // Try localStorage first
-      let savedData = localStorage.getItem('inspectionCoordinates');
-      
-      if (!savedData) {
-        // Try sessionStorage
-        savedData = sessionStorage.getItem('inspectionCoordinates');
-      }
-      
-      if (!savedData) {
-        // Try cookies as fallback
-        const cookies = document.cookie.split(';');
-        for (let cookie of cookies) {
-          const [name, value] = cookie.trim().split('=');
-          if (name === 'inspectionCoordinates') {
-            savedData = decodeURIComponent(value);
-            break;
-          }
+      // Try to get from Joget form fields first
+      try {
+        const latField = window.parent.document.querySelector('[name="coordinates_lat"]');
+        const lngField = window.parent.document.querySelector('[name="coordinates_lng"]');
+        
+        if (latField && lngField && latField.value && lngField.value) {
+          coordinatesData = {
+            formId: formId,
+            latitude: parseFloat(latField.value),
+            longitude: parseFloat(lngField.value),
+            timestamp: new Date().toISOString()
+          };
+          console.log("Coordinates loaded from Joget form:", coordinatesData);
+          return coordinatesData;
         }
+      } catch (e) {
+        console.log("Could not access Joget form fields:", e);
       }
+
+      // Try localStorage as backup
+      const storageKey = `inspection_${formId}`;
+      const savedData = localStorage.getItem(storageKey);
       
       if (savedData) {
         coordinatesData = JSON.parse(savedData);
-        console.log("Inspection coordinates loaded:", coordinatesData);
+        console.log("Coordinates loaded from localStorage:", coordinatesData);
       }
       
     } catch (error) {
@@ -219,7 +243,8 @@ require([
       },
       attributes: {
         title: "Inspector Location",
-        type: "inspection_site"
+        type: "inspection_site",
+        formId: currentFormId
       },
       popupTemplate: {
         title: "🔍 Inspection Site",
@@ -227,6 +252,7 @@ require([
           <b>Inspector Selected Location</b><br>
           <b>Latitude:</b> ${lat.toFixed(6)}<br>
           <b>Longitude:</b> ${lon.toFixed(6)}<br>
+          <b>Form ID:</b> ${currentFormId}<br>
           <b>Status:</b> Under Review
         `
       }
@@ -245,8 +271,23 @@ require([
 
   // Function to initialize map
   function initializeMap() {
+    // Get form ID
+    currentFormId = getFormId();
+    
+    if (!currentFormId) {
+      console.error("No form ID found");
+      document.getElementById('formIdDisplay').innerHTML = "❌ No Form ID found";
+      document.getElementById('inspectorInfo').innerHTML = "❌ Cannot load without Form ID";
+      document.getElementById('inspectionStatus').innerHTML = 
+        "⚠️ Form ID required to load inspection data";
+      return;
+    }
+
+    // Update form ID display
+    document.getElementById('formIdDisplay').innerHTML = `Form ID: ${currentFormId}`;
+    
     // Load inspection coordinates
-    const coordinatesData = loadInspectionCoordinates();
+    const coordinatesData = loadInspectionCoordinates(currentFormId);
     
     let centerLon = 31.2357, centerLat = 30.0444, zoomLevel = 10; // Default Cairo
     
@@ -262,8 +303,8 @@ require([
       document.getElementById('inspectionStatus').innerHTML = 
         `✅ Inspection site loaded (${coordinatesData.timestamp ? new Date(coordinatesData.timestamp).toLocaleString() : 'No timestamp'})`;
     } else {
-      console.log("No inspection coordinates found, using default location");
-      document.getElementById('inspectorInfo').innerHTML = "❌ No inspection location found";
+      console.log("No inspection coordinates found for form:", currentFormId);
+      document.getElementById('inspectorInfo').innerHTML = "❌ No inspection location found for this form";
       document.getElementById('inspectionStatus').innerHTML = 
         "⚠️ No inspection coordinates available. Check if engineer submitted location.";
     }
@@ -299,6 +340,9 @@ require([
           });
         }, 1000);
       }
+      
+      // Load existing sketches
+      loadExistingSketches();
     });
 
     // Listen for sketch events
@@ -315,6 +359,64 @@ require([
     });
   }
 
+  // Function to load existing sketches for this form
+  function loadExistingSketches() {
+    if (!currentFormId) return;
+
+    try {
+      // Try to get from Joget form field
+      try {
+        const sketchField = window.parent.document.querySelector('[name="supervisor_sketches"]');
+        if (sketchField && sketchField.value) {
+          const sketchData = JSON.parse(sketchField.value);
+          restoreSketches(sketchData);
+          return;
+        }
+      } catch (e) {
+        console.log("Could not access Joget sketch field:", e);
+      }
+
+      // Try localStorage as backup
+      const storageKey = `supervisor_review_${currentFormId}`;
+      const savedData = localStorage.getItem(storageKey);
+      
+      if (savedData) {
+        const reviewData = JSON.parse(savedData);
+        if (reviewData.sketches) {
+          restoreSketches(reviewData);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading existing sketches:", error);
+    }
+  }
+
+  // Function to restore sketches from data
+  function restoreSketches(reviewData) {
+    if (!reviewData.sketches) return;
+
+    graphicsLayer.removeAll();
+    let loadedCount = 0;
+    
+    reviewData.sketches.forEach((sketchData, index) => {
+      try {
+        const graphic = new Graphic({
+          geometry: sketchData.geometry,
+          symbol: sketchData.symbol,
+          attributes: sketchData.attributes || {}
+        });
+        graphicsLayer.add(graphic);
+        loadedCount++;
+      } catch (e) {
+        console.error(`Error loading sketch ${index}:`, e);
+      }
+    });
+
+    if (loadedCount > 0) {
+      showControlStatus(`📁 Loaded ${loadedCount} sketches`, "success");
+    }
+  }
+
   // Function to show control status
   function showControlStatus(message, type) {
     const statusDiv = document.getElementById('controlStatus');
@@ -327,8 +429,29 @@ require([
     }, 3000);
   }
 
+  // Function to save sketches to Joget form
+  function saveToJogetForm(reviewData) {
+    try {
+      const sketchField = window.parent.document.querySelector('[name="supervisor_sketches"]');
+      if (sketchField) {
+        sketchField.value = JSON.stringify(reviewData);
+        console.log("Sketches saved to Joget form field");
+        return true;
+      }
+    } catch (error) {
+      console.error("Error saving to Joget form:", error);
+      return false;
+    }
+    return false;
+  }
+
   // Function to save supervisor review
   window.saveReview = function() {
+    if (!currentFormId) {
+      showControlStatus("❌ No Form ID available", "error");
+      return;
+    }
+
     const graphics = graphicsLayer.graphics.items;
     
     console.log("Saving review - found graphics:", graphics.length);
@@ -339,222 +462,7 @@ require([
     }
 
     const reviewData = {
+      formId: currentFormId,
       inspectionCoordinates: inspectionCoordinates,
       sketches: [],
-      reviewTimestamp: new Date().toISOString(),
-      sketchCount: graphics.length,
-      reviewId: `review_${Date.now()}`
-    };
-
-    graphics.forEach((graphic, index) => {
-      try {
-        const sketchItem = {
-          id: index,
-          geometry: graphic.geometry.toJSON(),
-          symbol: graphic.symbol ? graphic.symbol.toJSON() : null,
-          attributes: graphic.attributes || {},
-          type: graphic.geometry.type
-        };
-        reviewData.sketches.push(sketchItem);
-        console.log(`Sketch ${index} processed:`, sketchItem.type);
-      } catch (error) {
-        console.error(`Error processing sketch ${index}:`, error);
-      }
-    });
-
-    try {
-      const reviewJson = JSON.stringify(reviewData);
-      
-      // Save to multiple storage locations with error handling
-      try {
-        localStorage.setItem('supervisorReview', reviewJson);
-        console.log("Saved to localStorage");
-      } catch (e) {
-        console.error("localStorage save failed:", e);
-      }
-      
-      try {
-        sessionStorage.setItem('supervisorReview', reviewJson);
-        console.log("Saved to sessionStorage");
-      } catch (e) {
-        console.error("sessionStorage save failed:", e);
-      }
-      
-      // Save to cookie as backup
-      try {
-        const expirationDate = new Date();
-        expirationDate.setTime(expirationDate.getTime() + (24 * 60 * 60 * 1000)); // 1 day
-        document.cookie = `supervisorReview=${encodeURIComponent(reviewJson)}; expires=${expirationDate.toUTCString()}; path=/; SameSite=Lax`;
-        console.log("Saved to cookie");
-      } catch (e) {
-        console.error("Cookie save failed:", e);
-      }
-      
-      // Send to parent window (Joget form)
-      if (window.parent) {
-        window.parent.postMessage({
-          type: "supervisorReview",
-          data: reviewData
-        }, "*");
-        console.log("Sent to parent window");
-      }
-
-      console.log("Review saved successfully:", reviewData);
-      showControlStatus(`✅ Review saved! (${graphics.length} sketches) ID: ${reviewData.reviewId.slice(-8)}`, "success");
-      
-      // Verify save by trying to read it back
-      setTimeout(() => {
-        const verification = localStorage.getItem('supervisorReview');
-        if (verification) {
-          console.log("Save verification successful");
-        } else {
-          console.error("Save verification failed");
-        }
-      }, 100);
-      
-    } catch (error) {
-      console.error("Error saving review:", error);
-      showControlStatus("❌ Error saving review: " + error.message, "error");
-    }
-  };
-
-  // Function to load saved review
-  window.loadSavedReview = function() {
-    try {
-      let savedData = null;
-      
-      // Try localStorage first
-      try {
-        savedData = localStorage.getItem('supervisorReview');
-        if (savedData) console.log("Found data in localStorage");
-      } catch (e) {
-        console.error("localStorage read failed:", e);
-      }
-      
-      // Try sessionStorage if localStorage failed
-      if (!savedData) {
-        try {
-          savedData = sessionStorage.getItem('supervisorReview');
-          if (savedData) console.log("Found data in sessionStorage");
-        } catch (e) {
-          console.error("sessionStorage read failed:", e);
-        }
-      }
-      
-      // Try cookies as last resort
-      if (!savedData) {
-        try {
-          const cookies = document.cookie.split(';');
-          for (let cookie of cookies) {
-            const [name, value] = cookie.trim().split('=');
-            if (name === 'supervisorReview') {
-              savedData = decodeURIComponent(value);
-              console.log("Found data in cookie");
-              break;
-            }
-          }
-        } catch (e) {
-          console.error("Cookie read failed:", e);
-        }
-      }
-      
-      if (savedData) {
-        const reviewData = JSON.parse(savedData);
-        console.log("Loading review data:", reviewData);
-        
-        // Clear existing sketches first
-        graphicsLayer.removeAll();
-        console.log("Cleared existing graphics");
-        
-        // Recreate sketches
-        let loadedCount = 0;
-        reviewData.sketches.forEach((sketchData, index) => {
-          try {
-            const graphic = new Graphic({
-              geometry: sketchData.geometry,
-              symbol: sketchData.symbol,
-              attributes: sketchData.attributes || {}
-            });
-            graphicsLayer.add(graphic);
-            loadedCount++;
-            console.log(`Loaded sketch ${index}:`, sketchData.type);
-          } catch (e) {
-            console.error(`Error loading sketch ${index}:`, e);
-          }
-        });
-        
-        showControlStatus(`📁 Review loaded (${loadedCount}/${reviewData.sketches.length} sketches)`, "success");
-        console.log(`Successfully loaded ${loadedCount} sketches`);
-        
-        // Show review info
-        if (reviewData.reviewId) {
-          setTimeout(() => {
-            showControlStatus(`📁 Loaded review ID: ${reviewData.reviewId.slice(-8)}`, "info");
-          }, 2000);
-        }
-        
-      } else {
-        showControlStatus("📭 No saved review found", "info");
-        console.log("No saved review data found in any storage");
-        
-        // Debug: show what's in storage
-        console.log("localStorage keys:", Object.keys(localStorage));
-        console.log("sessionStorage keys:", Object.keys(sessionStorage));
-        console.log("cookies:", document.cookie);
-      }
-      
-    } catch (error) {
-      console.error("Error loading review:", error);
-      showControlStatus("❌ Error loading review: " + error.message, "error");
-    }
-  };
-
-  // Function to clear all sketches
-  window.clearAllSketches = function() {
-    graphicsLayer.removeAll();
-    showControlStatus("🗑️ All sketches cleared", "success");
-  };
-
-  // Function to center on inspection site
-  window.centerOnInspection = function() {
-    if (inspectionCoordinates) {
-      view.goTo({
-        center: [inspectionCoordinates.longitude, inspectionCoordinates.latitude],
-        zoom: 16
-      });
-      showControlStatus("🎯 Centered on inspection site", "success");
-    } else {
-      showControlStatus("❌ No inspection site coordinates", "error");
-    }
-  };
-
-  // Debug function to check sketches
-  window.debugSketches = function() {
-    const graphics = graphicsLayer.graphics.items;
-    console.log("=== SKETCH DEBUG ===");
-    console.log("Graphics layer items:", graphics.length);
-    console.log("Graphics layer:", graphicsLayer);
-    console.log("All graphics:", graphics);
-    
-    graphics.forEach((graphic, index) => {
-      console.log(`Graphic ${index}:`, {
-        geometry: graphic.geometry,
-        symbol: graphic.symbol,
-        type: graphic.geometry?.type
-      });
-    });
-    
-    // Check storage
-    console.log("localStorage supervisorReview:", localStorage.getItem('supervisorReview'));
-    console.log("sessionStorage supervisorReview:", sessionStorage.getItem('supervisorReview'));
-    
-    showControlStatus(`🐛 Debug: ${graphics.length} graphics found. Check console for details.`, "info");
-  };
-
-  // Initialize the map when page loads
-  initializeMap();
-});
-</script>
-
-  </body>
-</html>
+      reviewTim
