@@ -28,27 +28,35 @@ require([
   "esri/widgets/Sketch", "esri/Graphic"
 ], function(Map, MapView, GraphicsLayer, Sketch, Graphic) {
 
+  // Parse URL params (optional fallback)
   const params = new URLSearchParams(window.location.search);
   const formId = params.get("form_id") || "";
-  const lat = parseFloat(params.get("lat")) || 25.276987;
-  const lng = parseFloat(params.get("lng")) || 55.296249;
+  let lat = parseFloat(params.get("lat")) || 25.276987; // Default Dubai coords
+  let lng = parseFloat(params.get("lng")) || 55.296249;
   const sketchesData = params.get("sketches") ? JSON.parse(decodeURIComponent(params.get("sketches"))) : [];
 
+  // Layers
   const markerLayer = new GraphicsLayer();
   const sketchLayer = new GraphicsLayer();
 
-  const map = new Map({ basemap: "streets-navigation-vector", layers: [markerLayer, sketchLayer] });
-  const view = new MapView({ container: "viewDiv", map, center: [lng, lat], zoom: 16 });
+  // Map & view
+  const map = new Map({
+    basemap: "streets-navigation-vector",
+    layers: [markerLayer, sketchLayer]
+  });
+  const view = new MapView({
+    container: "viewDiv",
+    map,
+    center: [lng, lat],
+    zoom: 16
+  });
 
-  // Engineer's marker
+  // Engineer marker if coords from URL
   if (params.get("lat") && params.get("lng")) {
-    markerLayer.add(new Graphic({
-      geometry: { type: "point", longitude: lng, latitude: lat },
-      symbol: { type: "simple-marker", color: "blue", size: "12px" }
-    }));
+    addEngineerMarker(lng, lat);
   }
 
-  // Load saved sketches
+  // Load existing sketches
   sketchesData.forEach(g => {
     sketchLayer.add(new Graphic({
       geometry: g.geometry,
@@ -58,11 +66,16 @@ require([
 
   // Sketch tool
   const sketch = new Sketch({
-    view, layer: sketchLayer, creationMode: "update",
-    visibleElements: { selectionTools: { "lasso-selection": false, "rectangle-selection": false } }
+    view,
+    layer: sketchLayer,
+    creationMode: "update",
+    visibleElements: {
+      selectionTools: { "lasso-selection": false, "rectangle-selection": false }
+    }
   });
   view.ui.add(sketch, "top-left");
 
+  // Save button
   document.getElementById("saveBtn").onclick = () => {
     const sketchesToSave = sketchLayer.graphics.toArray().map(g => ({
       geometry: g.geometry.toJSON(),
@@ -76,9 +89,31 @@ require([
     alert("Review saved.");
   };
 
+  // Clear button
   document.getElementById("clearBtn").onclick = () => {
     sketchLayer.removeAll();
   };
+
+  // Function to add engineer marker
+  function addEngineerMarker(lng, lat) {
+    markerLayer.removeAll();
+    markerLayer.add(new Graphic({
+      geometry: { type: "point", longitude: lng, latitude: lat },
+      symbol: { type: "simple-marker", color: "blue", size: "12px" }
+    }));
+  }
+
+  // Listen for Supervisor Form messages (Joget -> Map)
+  window.addEventListener("message", function(event) {
+    if (!event.data) return;
+
+    if (event.data.type === "zoomToEngineerLocation") {
+      lat = parseFloat(event.data.coordinates_lat);
+      lng = parseFloat(event.data.coordinates_lng);
+      view.goTo({ center: [lng, lat], zoom: 16 });
+      addEngineerMarker(lng, lat);
+    }
+  });
 });
 </script>
 </body>
