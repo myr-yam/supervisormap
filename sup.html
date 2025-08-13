@@ -28,10 +28,10 @@ require([
   "esri/widgets/Sketch", "esri/Graphic"
 ], function(Map, MapView, GraphicsLayer, Sketch, Graphic) {
 
-  // Parse URL params (optional fallback)
+  // Parse URL params (optional fallback if no postMessage is used)
   const params = new URLSearchParams(window.location.search);
   const formId = params.get("form_id") || "";
-  let lat = parseFloat(params.get("lat")) || 25.276987; // Default Dubai coords
+  let lat = parseFloat(params.get("lat")) || 25.276987; // Default Dubai
   let lng = parseFloat(params.get("lng")) || 55.296249;
   const sketchesData = params.get("sketches") ? JSON.parse(decodeURIComponent(params.get("sketches"))) : [];
 
@@ -39,11 +39,12 @@ require([
   const markerLayer = new GraphicsLayer();
   const sketchLayer = new GraphicsLayer();
 
-  // Map & view
+  // Map setup
   const map = new Map({
     basemap: "streets-navigation-vector",
     layers: [markerLayer, sketchLayer]
   });
+
   const view = new MapView({
     container: "viewDiv",
     map,
@@ -51,12 +52,12 @@ require([
     zoom: 16
   });
 
-  // Engineer marker if coords from URL
+  // Add engineer marker if from URL
   if (params.get("lat") && params.get("lng")) {
     addEngineerMarker(lng, lat);
   }
 
-  // Load existing sketches
+  // Load saved sketches if any
   sketchesData.forEach(g => {
     sketchLayer.add(new Graphic({
       geometry: g.geometry,
@@ -75,7 +76,7 @@ require([
   });
   view.ui.add(sketch, "top-left");
 
-  // Save button
+  // Save button handler
   document.getElementById("saveBtn").onclick = () => {
     const sketchesToSave = sketchLayer.graphics.toArray().map(g => ({
       geometry: g.geometry.toJSON(),
@@ -89,12 +90,12 @@ require([
     alert("Review saved.");
   };
 
-  // Clear button
+  // Clear button handler
   document.getElementById("clearBtn").onclick = () => {
     sketchLayer.removeAll();
   };
 
-  // Function to add engineer marker
+  // Helper: add engineer marker
   function addEngineerMarker(lng, lat) {
     markerLayer.removeAll();
     markerLayer.add(new Graphic({
@@ -103,13 +104,14 @@ require([
     }));
   }
 
-  // Listen for Supervisor Form messages (Joget -> Map)
+  // Listen for coordinates from Joget Supervisor form
   window.addEventListener("message", function(event) {
     if (!event.data) return;
 
     if (event.data.type === "zoomToEngineerLocation") {
       lat = parseFloat(event.data.coordinates_lat);
       lng = parseFloat(event.data.coordinates_lng);
+
       view.goTo({ center: [lng, lat], zoom: 16 });
       addEngineerMarker(lng, lat);
     }
